@@ -125,9 +125,8 @@ ZenitarParser/
 ├── app.py
 ├── config.py
 ├── requirements.txt
-├── create_session.py
-├── sessions/
-└── README.md
+├── simple_test.py
+├── sessions/ <-- Сюда ставить .session Pyrogram
 ```
 ---
 
