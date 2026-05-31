@@ -97,6 +97,7 @@ async def cb_acc_view(cb: CallbackQuery, session_manager: SessionManager):
     acc = await database.get_account(name) or {}
 
     kb = InlineKeyboardBuilder()
+    kb.button(text="🛠 Профильные инструменты", callback_data=f"prof_open_{name}")
     kb.button(text="🗑 Удалить аккаунт", callback_data=f"acd_{name}")
     kb.button(text="◀️ Назад", callback_data="accounts_menu")
     kb.adjust(1)

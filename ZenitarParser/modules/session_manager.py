@@ -92,6 +92,18 @@ class SessionManager:
             self.set_proxy(name, proxy)
         return await self._start(name)
 
+    async def reconnect(self, name: str, proxy: str = None) -> bool:
+        """Restart a session, optionally applying a new proxy."""
+        client = self.clients.pop(name, None)
+        if client:
+            try:
+                await client.stop()
+            except Exception:
+                pass
+        if proxy is not None:
+            self.set_proxy(name, proxy)
+        return await self._start(name) is not None
+
     async def remove_session(self, name: str):
         client = self.clients.pop(name, None)
         if client:

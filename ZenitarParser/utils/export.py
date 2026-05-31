@@ -13,9 +13,11 @@ USER_FIELDS = [
 
 
 def _safe(value) -> str:
-    """Guard against CSV injection (formula prefixes) while preserving the value."""
+    """Guard against CSV injection (formula prefixes) while preserving the value.
+    Plain numbers (ids, incl. negative channel ids) are never mangled so they
+    round-trip cleanly through audience operations."""
     s = "" if value is None else str(value)
-    if s and s[0] in ("=", "+", "-", "@"):
+    if s and s[0] in ("=", "+", "-", "@") and not s.lstrip("-").isdigit():
         s = "'" + s
     return s
 
