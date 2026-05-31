@@ -144,6 +144,40 @@ async def by_keyword(
 _POST_RE = re.compile(r"t\.me/([\w\d_]+)/(\d+)", re.IGNORECASE)
 
 
+async def comments(
+    client: Client,
+    post_link: str,
+    limit: int = 5000,
+    on_progress: Prog = None,
+    stop: Optional[asyncio.Event] = None,
+) -> List[dict]:
+    """Parse users who commented under a channel post (its discussion thread)."""
+    m = _POST_RE.search(post_link)
+    if not m:
+        raise ValueError("Неверная ссылка. Нужен пост вида https://t.me/channel/123")
+    chat_slug, msg_id = m.group(1), int(m.group(2))
+
+    seen: dict[int, dict] = {}
+    try:
+        async for reply in client.get_discussion_replies(chat_slug, msg_id):
+            if stop and stop.is_set():
+                break
+            if reply.from_user and reply.from_user.id not in seen:
+                seen[reply.from_user.id] = _u(reply.from_user)
+                if len(seen) % 100 == 0 and on_progress:
+                    await on_progress(len(seen), 0, f"⏳ Комментаторов: {len(seen)}")
+            if len(seen) >= limit:
+                break
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.error("comments error: %s", e)
+        raise
+    return list(seen.values())
+
+
 async def reactions(
     client: Client,
     post_link: str,

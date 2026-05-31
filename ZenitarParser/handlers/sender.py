@@ -9,9 +9,12 @@ import config
 import database
 from modules.account_pool import AccountPool
 from modules import sender as S
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 from utils.keyboards import sender_menu, stop_kb, back_kb
 from utils.export import load_csv, latest_export
 from utils import tasks
+from modules.sender import _fmt
 from handlers.start import admin
 
 router = Router()
@@ -20,6 +23,7 @@ router = Router()
 class SenderState(StatesGroup):
     wait_input = State()
     wait_message = State()
+    wait_confirm = State()
 
 
 @router.callback_query(F.data == "sender_menu")
@@ -87,17 +91,73 @@ async def handle_sender_input(message: Message, state: FSMContext):
 
 
 @router.message(SenderState.wait_message, F.text)
-async def handle_sender_text(message: Message, state: FSMContext, account_pool: AccountPool):
+async def handle_sender_text(message: Message, state: FSMContext):
     if not admin(message.from_user.id): return
 
     data = await state.get_data()
     users = data.get("users", [])
-    mode = data.get("mode", "userbot")
     template = message.text
-    await state.clear()
 
     if not users:
         await message.answer("❌ Список пуст.")
+        await state.clear()
+        return
+
+    await state.update_data(template=template)
+    await state.set_state(SenderState.wait_confirm)
+
+    # Render a preview using the first recipient's data
+    sample = users[0] if users else {"first_name": "Имя", "username": "username"}
+    preview = _fmt(template, sample)
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🧪 Тест мне", callback_data="send_test")
+    kb.button(text="🚀 Запустить", callback_data="send_confirm")
+    kb.button(text="✖️ Отмена", callback_data="sender_menu")
+    kb.adjust(1, 2)
+
+    await message.answer(
+        f"👀 *Превью сообщения* (на примере первого получателя):\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n{preview}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 Получателей: *{len(users)}*\n\n"
+        f"Отправьте тест себе или запускайте рассылку.",
+        reply_markup=kb.as_markup(), parse_mode="Markdown",
+    )
+
+
+@router.callback_query(SenderState.wait_confirm, F.data == "send_test")
+async def cb_send_test(cb: CallbackQuery, state: FSMContext):
+    if not admin(cb.from_user.id): return
+    data = await state.get_data()
+    users = data.get("users", [])
+    template = data.get("template", "")
+    sample = users[0] if users else {"first_name": cb.from_user.first_name}
+    try:
+        await cb.message.answer(
+            f"🧪 *Тестовое сообщение:*\n\n{_fmt(template, sample)}",
+            parse_mode="Markdown",
+        )
+        await cb.answer("Тест отправлен")
+    except Exception:
+        await cb.message.answer(f"🧪 Тест:\n\n{_fmt(template, sample)}", parse_mode=None)
+        await cb.answer()
+
+
+@router.callback_query(SenderState.wait_confirm, F.data == "send_confirm")
+async def cb_send_confirm(cb: CallbackQuery, state: FSMContext, account_pool: AccountPool):
+    if not admin(cb.from_user.id): return
+
+    data = await state.get_data()
+    users = data.get("users", [])
+    mode = data.get("mode", "userbot")
+    template = data.get("template", "")
+    await state.clear()
+    await cb.answer()
+
+    message = cb.message
+    if not users:
+        await message.edit_text("❌ Список пуст.", reply_markup=back_kb("sender_menu"))
         return
 
     delay_raw = await database.get_setting("delay_send", config.DEFAULT_DELAY_SEND)

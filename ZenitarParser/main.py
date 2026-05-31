@@ -13,7 +13,7 @@ import database
 from utils.logger import setup_logging
 from modules.session_manager import SessionManager
 from modules.account_pool import AccountPool
-from handlers import start, parser, inviter, sender, accounts, settings
+from handlers import start, parser, audience, inviter, sender, accounts, settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ async def main():
 
     dp.include_router(start.router)
     dp.include_router(parser.router)
+    dp.include_router(audience.router)
     dp.include_router(inviter.router)
     dp.include_router(sender.router)
     dp.include_router(accounts.router)

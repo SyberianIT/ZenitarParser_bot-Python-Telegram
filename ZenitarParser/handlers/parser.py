@@ -24,6 +24,7 @@ class ParserState(StatesGroup):
     wait_active_group = State()
     wait_keywords = State()
     wait_post = State()
+    wait_comments_post = State()
 
 
 # ── Menu ─────────────────────────────────────────────────────────────────────
@@ -225,6 +226,50 @@ async def handle_post(message: Message, state: FSMContext, session_manager: Sess
     try:
         users = await P.reactions(client, link, on_progress=prog, stop=stop)
         await _finish(msg, users, "reactions", message.chat.id)
+    except Exception as e:
+        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"), parse_mode=None)
+    finally:
+        tasks.done_task(task_id)
+
+
+# ── Comments ──────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "parse_comments")
+async def cb_parse_comments(cb: CallbackQuery, state: FSMContext):
+    if not admin(cb.from_user.id): return
+    await state.set_state(ParserState.wait_comments_post)
+    await cb.message.edit_text(
+        "💬 *Парсинг комментаторов*\n\n"
+        "Введите ссылку на пост канала с комментариями:\n"
+        "Пример: `https://t.me/channel/123`",
+        parse_mode="Markdown", reply_markup=back_kb("parser_menu"),
+    )
+    await cb.answer()
+
+
+@router.message(ParserState.wait_comments_post, F.text)
+async def handle_comments(message: Message, state: FSMContext, session_manager: SessionManager):
+    if not admin(message.from_user.id): return
+    await state.clear()
+
+    link = message.text.strip()
+    client = session_manager.get_client()
+    if not client:
+        await message.answer("❌ Нет активных аккаунтов.")
+        return
+
+    task_id, stop = tasks.new_task()
+    msg = await message.answer("⏳ Собираю комментаторов...", reply_markup=stop_kb(task_id))
+
+    async def prog(cur, tot, text):
+        try:
+            await msg.edit_text(text, reply_markup=stop_kb(task_id))
+        except Exception:
+            pass
+
+    try:
+        users = await P.comments(client, link, on_progress=prog, stop=stop)
+        await _finish(msg, users, "comments", message.chat.id)
     except Exception as e:
         await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"), parse_mode=None)
     finally:

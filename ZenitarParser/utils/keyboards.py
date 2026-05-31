@@ -5,6 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def main_menu() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="🔍 Парсер", callback_data="parser_menu")
+    kb.button(text="🎯 Аудитория", callback_data="audience_menu")
     kb.button(text="📨 Инвайтер", callback_data="inviter_menu")
     kb.button(text="📢 Рассыльщик", callback_data="sender_menu")
     kb.button(text="👥 Аккаунты", callback_data="accounts_menu")
@@ -12,7 +13,37 @@ def main_menu() -> InlineKeyboardMarkup:
     kb.button(text="📊 Статистика", callback_data="stats_menu")
     kb.button(text="⚙️ Настройки", callback_data="settings_menu")
     kb.button(text="🔄 Обновить", callback_data="refresh")
-    kb.adjust(2, 2, 2, 1)
+    kb.adjust(2, 2, 2, 2, 1)
+    return kb.as_markup()
+
+
+def audience_menu() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🧹 Дедупликация", callback_data="aud_dedupe")
+    kb.button(text="➕ Объединить", callback_data="aud_merge")
+    kb.button(text="➖ Вычесть (исключить)", callback_data="aud_subtract")
+    kb.button(text="🔬 Фильтр", callback_data="aud_filter")
+    kb.button(text="◀️ Назад", callback_data="main_menu")
+    kb.adjust(2, 2, 1)
+    return kb.as_markup()
+
+
+def audience_filter_menu() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔗 Только с @username", callback_data="af_only_username")
+    kb.button(text="💎 Только Premium", callback_data="af_only_premium")
+    kb.button(text="🚫 Без ботов", callback_data="af_no_bots")
+    kb.button(text="🧑 Только люди", callback_data="af_only_humans")
+    kb.button(text="◀️ Назад", callback_data="audience_menu")
+    kb.adjust(2, 2, 1)
+    return kb.as_markup()
+
+
+def done_kb(done_cb: str, back: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Готово", callback_data=done_cb)
+    kb.button(text="◀️ Назад", callback_data=back)
+    kb.adjust(2)
     return kb.as_markup()
 
 
@@ -22,9 +53,10 @@ def parser_menu() -> InlineKeyboardMarkup:
     kb.button(text="✍️ Активные юзеры", callback_data="parse_active")
     kb.button(text="🔎 По ключевым словам", callback_data="parse_keyword")
     kb.button(text="❤️ По реакциям на пост", callback_data="parse_reactions")
+    kb.button(text="💬 Комментаторы поста", callback_data="parse_comments")
     kb.button(text="📂 Мои экспорты", callback_data="parse_exports")
     kb.button(text="◀️ Назад", callback_data="main_menu")
-    kb.adjust(2, 2, 1, 1)
+    kb.adjust(2, 2, 1, 1, 1)
     return kb.as_markup()
 
 
