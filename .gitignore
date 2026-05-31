@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Runtime data
+ZenitarParser/sessions/
+ZenitarParser/exports/
+ZenitarParser/uploads/
+ZenitarParser/logs/
+ZenitarParser/zenitar.db
+*.session
+*.session-journal
+
+# Environment / secrets
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
