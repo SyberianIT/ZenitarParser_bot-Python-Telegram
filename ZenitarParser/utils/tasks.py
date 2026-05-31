@@ -1,14 +1,17 @@
 import asyncio
+import itertools
 from typing import Dict
 
-# Global registry of running task stop-events
+# Monotonic task ids — never reused, unlike id(obj)
+_counter = itertools.count(1)
 active_tasks: Dict[int, asyncio.Event] = {}
 
 
-def new_task() -> asyncio.Event:
+def new_task() -> tuple[int, asyncio.Event]:
+    task_id = next(_counter)
     event = asyncio.Event()
-    active_tasks[id(event)] = event
-    return event
+    active_tasks[task_id] = event
+    return task_id, event
 
 
 def stop_task(task_id: int) -> bool:
@@ -19,5 +22,5 @@ def stop_task(task_id: int) -> bool:
     return False
 
 
-def done_task(event: asyncio.Event):
-    active_tasks.pop(id(event), None)
+def done_task(task_id: int):
+    active_tasks.pop(task_id, None)

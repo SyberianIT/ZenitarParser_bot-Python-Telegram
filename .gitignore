@@ -17,7 +17,11 @@ env/
 # Runtime data
 ZenitarParser/sessions/
 ZenitarParser/exports/
+ZenitarParser/uploads/
+ZenitarParser/logs/
 ZenitarParser/zenitar.db
+*.session
+*.session-journal
 
 # Environment / secrets
 .env

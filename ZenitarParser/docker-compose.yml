@@ -1,0 +1,24 @@
+services:
+  bot:
+    build: .
+    container_name: zenitar_bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./sessions:/app/sessions
+      - ./exports:/app/exports
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./zenitar.db:/app/zenitar.db
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: zenitar_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

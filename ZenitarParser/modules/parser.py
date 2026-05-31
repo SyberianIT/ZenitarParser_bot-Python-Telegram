@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import re
 from typing import Callable, List, Optional
 
 from pyrogram import Client
 from pyrogram.enums import ChatMembersFilter
-from pyrogram.errors import FloodWait, ChatAdminRequired, ChannelPrivate, UserNotParticipant
+from pyrogram.errors import (
+    FloodWait, ChatAdminRequired, ChannelPrivate, UserNotParticipant,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +35,17 @@ async def members(
     on_progress: Prog = None,
     stop: Optional[asyncio.Event] = None,
 ) -> List[dict]:
+    # "all" → iterate without a search filter (RECENT yields the full member
+    # list for groups the account can fully enumerate)
     fmap = {
-        "all":    ChatMembersFilter.SEARCH,
+        "all":    ChatMembersFilter.RECENT,
         "recent": ChatMembersFilter.RECENT,
         "admins": ChatMembersFilter.ADMINISTRATORS,
         "bots":   ChatMembersFilter.BOTS,
     }
     pf = fmap.get(filter_type, ChatMembersFilter.RECENT)
     result: list[dict] = []
+    seen: set[int] = set()
 
     try:
         chat = await client.get_chat(group)
@@ -48,12 +54,15 @@ async def members(
         async for member in client.get_chat_members(chat.id, filter=pf):
             if stop and stop.is_set():
                 break
+            if not member.user or member.user.id in seen:
+                continue
+            seen.add(member.user.id)
             result.append(_u(member.user))
             n = len(result)
             if n >= limit:
                 break
             if n % 100 == 0 and on_progress:
-                await on_progress(n, total, f"⏳ Участников: {n}/{total}")
+                await on_progress(n, total, f"⏳ Участников: {n}/{total or '?'}")
             if n % 500 == 0:
                 await asyncio.sleep(1)
 
@@ -62,8 +71,10 @@ async def members(
         await asyncio.sleep(e.value)
     except (ChatAdminRequired, ChannelPrivate, UserNotParticipant) as e:
         logger.warning("members access: %s", e)
+        raise
     except Exception as e:
         logger.error("members error: %s", e)
+        raise
 
     return result
 
@@ -71,7 +82,7 @@ async def members(
 async def active_users(
     client: Client,
     group: str,
-    messages_limit: int = 1000,
+    messages_limit: int = 2000,
     on_progress: Prog = None,
     stop: Optional[asyncio.Event] = None,
 ) -> List[dict]:
@@ -91,6 +102,7 @@ async def active_users(
         await asyncio.sleep(e.value)
     except Exception as e:
         logger.error("active_users error: %s", e)
+        raise
     return list(seen.values())
 
 
@@ -115,8 +127,8 @@ async def by_keyword(
                 uname = getattr(ch, "username", None)
                 if uname and uname not in chats:
                     chats[uname] = {
-                        "id": ch.id,
                         "username": uname,
+                        "id": ch.id,
                         "title": getattr(ch, "title", ""),
                         "members_count": getattr(ch, "participants_count", 0),
                         "type": ch.__class__.__name__,
@@ -129,6 +141,9 @@ async def by_keyword(
     return list(chats.values())
 
 
+_POST_RE = re.compile(r"t\.me/([\w\d_]+)/(\d+)", re.IGNORECASE)
+
+
 async def reactions(
     client: Client,
     post_link: str,
@@ -137,14 +152,17 @@ async def reactions(
 ) -> List[dict]:
     from pyrogram.raw.functions.messages import GetMessageReactionsList
 
-    users: list[dict] = []
+    m = _POST_RE.search(post_link)
+    if not m:
+        raise ValueError(
+            "Неверная ссылка. Нужен публичный пост вида https://t.me/channel/123"
+        )
+    chat_slug, msg_id = m.group(1), int(m.group(2))
+
+    users: dict[int, dict] = {}
     try:
-        parts = post_link.rstrip("/").split("/")
-        chat_slug = parts[-2]
-        msg_id = int(parts[-1])
         peer = await client.resolve_peer(chat_slug)
         offset = ""
-
         while True:
             if stop and stop.is_set():
                 break
@@ -152,13 +170,20 @@ async def reactions(
                 GetMessageReactionsList(peer=peer, id=msg_id, limit=100, offset=offset)
             )
             for u in r.users:
-                users.append(_u(u))
+                users[u.id] = _u(u)
+            total = getattr(r, "count", len(users))
             if on_progress:
-                await on_progress(len(users), r.count, f"⏳ Реакции: {len(users)}/{r.count}")
-            if not getattr(r, "next_offset", None) or len(users) >= r.count:
+                await on_progress(len(users), total, f"⏳ Реакции: {len(users)}/{total}")
+            next_off = getattr(r, "next_offset", None)
+            if not next_off or len(users) >= total:
                 break
-            offset = r.next_offset
+            offset = next_off
             await asyncio.sleep(1)
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+    except ValueError:
+        raise
     except Exception as e:
         logger.error("reactions error: %s", e)
-    return users
+        raise
+    return list(users.values())

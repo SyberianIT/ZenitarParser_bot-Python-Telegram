@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+import config
 import database
 from utils.keyboards import back_kb
 from handlers.start import admin
@@ -30,13 +31,15 @@ def _bots_kb(bots: list):
 # ── Bots ─────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "bots_menu")
-async def cb_bots_menu(cb: CallbackQuery):
+async def cb_bots_menu(cb: CallbackQuery, state: FSMContext):
     if not admin(cb.from_user.id): return
+    await state.clear()
     bots = await database.get_all_bot_tokens()
     await cb.message.edit_text(
         f"🤖 *Боты для рассылки* ({len(bots)})\n\n"
         "Боты используются в рассыльщике (режим «через бота»).\n"
-        "Пользователь должен предварительно запустить бота.",
+        "Получатель должен предварительно запустить бота.\n"
+        "Несколько ботов = ротация и выше скорость.",
         reply_markup=_bots_kb(bots), parse_mode="Markdown",
     )
     await cb.answer()
@@ -53,7 +56,7 @@ async def cb_bot_add(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-@router.message(SettingsState.wait_bot_token)
+@router.message(SettingsState.wait_bot_token, F.text)
 async def handle_bot_token(message: Message, state: FSMContext):
     if not admin(message.from_user.id): return
     token = message.text.strip()
@@ -106,13 +109,44 @@ async def cb_bot_delete(cb: CallbackQuery):
     )
 
 
+# ── Statistics ──────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "stats_menu")
+async def cb_stats_menu(cb: CallbackQuery):
+    if not admin(cb.from_user.id): return
+    summary = await database.stats_summary()
+    recent = await database.recent_stats(8)
+    accounts = await database.get_accounts()
+    bots = await database.get_bot_tokens()
+
+    lines = [
+        "📊 *Статистика*\n",
+        f"🔍 Спаршено: *{summary['parse']['total']}* (запусков: {summary['parse']['runs']})",
+        f"📨 Инвайтов: *{summary['invite']['total']}* (запусков: {summary['invite']['runs']})",
+        f"📢 Отправлено: *{summary['send']['total']}* (запусков: {summary['send']['runs']})",
+        f"\n👥 Аккаунтов: *{len(accounts)}* · 🤖 Ботов: *{len(bots)}*",
+    ]
+    if recent:
+        lines.append("\n*Последние операции:*")
+        icons = {"parse": "🔍", "invite": "📨", "send": "📢"}
+        for r in recent:
+            ts = str(r["ts"])[5:16]
+            lines.append(f"{icons.get(r['action'], '•')} {r['detail']}: {r['count']} _{ts}_")
+
+    await cb.message.edit_text(
+        "\n".join(lines), reply_markup=back_kb("main_menu"), parse_mode="Markdown",
+    )
+    await cb.answer()
+
+
 # ── Settings ─────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "settings_menu")
-async def cb_settings_menu(cb: CallbackQuery):
+async def cb_settings_menu(cb: CallbackQuery, state: FSMContext):
     if not admin(cb.from_user.id): return
-    delay_invite = await database.get_setting("delay_invite", "5-15")
-    delay_send = await database.get_setting("delay_send", "3-10")
+    await state.clear()
+    delay_invite = await database.get_setting("delay_invite", config.DEFAULT_DELAY_INVITE)
+    delay_send = await database.get_setting("delay_send", config.DEFAULT_DELAY_SEND)
 
     kb = InlineKeyboardBuilder()
     kb.button(text=f"⏱ Инвайтинг: {delay_invite} сек", callback_data="set_delay_invite")
@@ -124,7 +158,9 @@ async def cb_settings_menu(cb: CallbackQuery):
         f"⚙️ *Настройки*\n\n"
         f"⏱ Задержка инвайтинга: `{delay_invite}` сек\n"
         f"⏱ Задержка рассылки: `{delay_send}` сек\n\n"
-        "_Формат: мин-макс, например `5-15`_",
+        f"🛡 Лимит инвайтов/аккаунт/день: `{config.MAX_INVITES_PER_DAY}`\n"
+        f"🛡 Лимит сообщений/аккаунт/день: `{config.MAX_MESSAGES_PER_DAY}`\n\n"
+        "_Формат задержки: мин-макс, например `20-45`_",
         reply_markup=kb.as_markup(), parse_mode="Markdown",
     )
     await cb.answer()
@@ -138,23 +174,22 @@ async def cb_set_delay(cb: CallbackQuery, state: FSMContext):
     await state.update_data(delay_key=key)
     label = "инвайтинга" if key == "delay_invite" else "рассылки"
     await cb.message.edit_text(
-        f"Введите задержку {label} в формате `мин-макс`\nПример: `5-15`",
+        f"Введите задержку {label} в формате `мин-макс`\nПример: `20-45`",
         parse_mode="Markdown", reply_markup=back_kb("settings_menu"),
     )
     await cb.answer()
 
 
-@router.message(SettingsState.wait_delay)
+@router.message(SettingsState.wait_delay, F.text)
 async def handle_delay(message: Message, state: FSMContext):
     if not admin(message.from_user.id): return
     val = message.text.strip()
     try:
         parts = val.split("-")
         assert len(parts) == 2
-        float(parts[0])
-        float(parts[1])
+        assert float(parts[0]) >= 0 and float(parts[1]) >= float(parts[0])
     except Exception:
-        await message.answer("❌ Неверный формат. Пример: `5-15`", parse_mode="Markdown")
+        await message.answer("❌ Неверный формат. Пример: `20-45`", parse_mode="Markdown")
         return
 
     data = await state.get_data()

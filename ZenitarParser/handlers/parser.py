@@ -1,4 +1,3 @@
-import asyncio
 import os
 from datetime import datetime
 
@@ -9,6 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
+import database
 from modules.session_manager import SessionManager
 from modules import parser as P
 from utils.keyboards import parser_menu, member_filter_menu, stop_kb, back_kb
@@ -20,8 +20,8 @@ router = Router()
 
 
 class ParserState(StatesGroup):
-    wait_group = State()
     wait_filter_group = State()
+    wait_active_group = State()
     wait_keywords = State()
     wait_post = State()
 
@@ -29,8 +29,9 @@ class ParserState(StatesGroup):
 # ── Menu ─────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "parser_menu")
-async def cb_parser_menu(cb: CallbackQuery):
+async def cb_parser_menu(cb: CallbackQuery, state: FSMContext):
     if not admin(cb.from_user.id): return
+    await state.clear()
     await cb.message.edit_text(
         "🔍 *Парсер*\n\nВыберите тип парсинга:",
         reply_markup=parser_menu(), parse_mode="Markdown",
@@ -51,11 +52,10 @@ async def cb_parse_members(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-@router.message(ParserState.wait_filter_group)
+@router.message(ParserState.wait_filter_group, F.text)
 async def handle_members_group(message: Message, state: FSMContext):
     if not admin(message.from_user.id): return
     await state.update_data(group=message.text.strip())
-    await state.set_state(ParserState.wait_group)
     await message.answer("Выберите фильтр участников:", reply_markup=member_filter_menu())
 
 
@@ -73,21 +73,23 @@ async def cb_member_filter(cb: CallbackQuery, state: FSMContext, session_manager
         await cb.answer()
         return
 
-    stop = tasks.new_task()
-    await cb.message.edit_text("⏳ Запускаю парсинг участников...", reply_markup=stop_kb(id(stop)))
+    task_id, stop = tasks.new_task()
+    await cb.message.edit_text("⏳ Запускаю парсинг участников...", reply_markup=stop_kb(task_id))
     await cb.answer()
 
     async def prog(cur, tot, text):
         try:
-            await cb.message.edit_text(text, reply_markup=stop_kb(id(stop)))
+            await cb.message.edit_text(text, reply_markup=stop_kb(task_id))
         except Exception:
             pass
 
     try:
         users = await P.members(client, group, filter_type=ftype, on_progress=prog, stop=stop)
-        await _finish(cb.message, users, f"members_{ftype}", stop, send_to=cb.from_user.id)
+        await _finish(cb.message, users, f"members_{ftype}", cb.from_user.id)
+    except Exception as e:
+        await cb.message.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
     finally:
-        tasks.done_task(stop)
+        tasks.done_task(task_id)
 
 
 # ── Active users ──────────────────────────────────────────────────────────────
@@ -95,8 +97,7 @@ async def cb_member_filter(cb: CallbackQuery, state: FSMContext, session_manager
 @router.callback_query(F.data == "parse_active")
 async def cb_parse_active(cb: CallbackQuery, state: FSMContext):
     if not admin(cb.from_user.id): return
-    await state.set_state(ParserState.wait_group)
-    await state.update_data(parse_type="active")
+    await state.set_state(ParserState.wait_active_group)
     await cb.message.edit_text(
         "✍️ *Активные пользователи*\n\n"
         "Введите @username или ссылку на группу/канал:",
@@ -105,12 +106,9 @@ async def cb_parse_active(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-@router.message(ParserState.wait_group)
-async def handle_group(message: Message, state: FSMContext, session_manager: SessionManager):
+@router.message(ParserState.wait_active_group, F.text)
+async def handle_active_group(message: Message, state: FSMContext, session_manager: SessionManager):
     if not admin(message.from_user.id): return
-
-    data = await state.get_data()
-    parse_type = data.get("parse_type", "active")
     group = message.text.strip()
     await state.clear()
 
@@ -119,20 +117,22 @@ async def handle_group(message: Message, state: FSMContext, session_manager: Ses
         await message.answer("❌ Нет активных аккаунтов. Добавьте в разделе 👥 Аккаунты.")
         return
 
-    stop = tasks.new_task()
-    msg = await message.answer("⏳ Запускаю...", reply_markup=stop_kb(id(stop)))
+    task_id, stop = tasks.new_task()
+    msg = await message.answer("⏳ Запускаю...", reply_markup=stop_kb(task_id))
 
     async def prog(cur, tot, text):
         try:
-            await msg.edit_text(text, reply_markup=stop_kb(id(stop)))
+            await msg.edit_text(text, reply_markup=stop_kb(task_id))
         except Exception:
             pass
 
     try:
         users = await P.active_users(client, group, on_progress=prog, stop=stop)
-        await _finish(msg, users, parse_type, stop, orig_chat=message.chat.id)
+        await _finish(msg, users, "active", message.chat.id)
+    except Exception as e:
+        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
     finally:
-        tasks.done_task(stop)
+        tasks.done_task(task_id)
 
 
 # ── Keywords ──────────────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ async def cb_parse_keyword(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-@router.message(ParserState.wait_keywords)
+@router.message(ParserState.wait_keywords, F.text)
 async def handle_keywords(message: Message, state: FSMContext, session_manager: SessionManager):
     if not admin(message.from_user.id): return
     await state.clear()
@@ -160,12 +160,12 @@ async def handle_keywords(message: Message, state: FSMContext, session_manager: 
         await message.answer("❌ Нет активных аккаунтов.")
         return
 
-    stop = tasks.new_task()
-    msg = await message.answer(f"⏳ Ищу по {len(kws)} словам...", reply_markup=stop_kb(id(stop)))
+    task_id, stop = tasks.new_task()
+    msg = await message.answer(f"⏳ Ищу по {len(kws)} словам...", reply_markup=stop_kb(task_id))
 
     async def prog(cur, tot, text):
         try:
-            await msg.edit_text(text, reply_markup=stop_kb(id(stop)))
+            await msg.edit_text(text, reply_markup=stop_kb(task_id))
         except Exception:
             pass
 
@@ -176,13 +176,15 @@ async def handle_keywords(message: Message, state: FSMContext, session_manager: 
             return
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         path = await to_csv(chats, f"chats_kw_{ts}.csv")
+        await database.log_stat("parse", "keyword", len(chats))
         await msg.edit_text(f"✅ Найдено *{len(chats)}* чатов", parse_mode="Markdown")
         await message.answer_document(
-            FSInputFile(path),
-            caption=f"🔍 По ключевым словам | {len(chats)} чатов",
+            FSInputFile(path), caption=f"🔍 По ключевым словам | {len(chats)} чатов",
         )
+    except Exception as e:
+        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
     finally:
-        tasks.done_task(stop)
+        tasks.done_task(task_id)
 
 
 # ── Reactions ─────────────────────────────────────────────────────────────────
@@ -200,7 +202,7 @@ async def cb_parse_reactions(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-@router.message(ParserState.wait_post)
+@router.message(ParserState.wait_post, F.text)
 async def handle_post(message: Message, state: FSMContext, session_manager: SessionManager):
     if not admin(message.from_user.id): return
     await state.clear()
@@ -211,20 +213,22 @@ async def handle_post(message: Message, state: FSMContext, session_manager: Sess
         await message.answer("❌ Нет активных аккаунтов.")
         return
 
-    stop = tasks.new_task()
-    msg = await message.answer("⏳ Парсю реакции...", reply_markup=stop_kb(id(stop)))
+    task_id, stop = tasks.new_task()
+    msg = await message.answer("⏳ Парсю реакции...", reply_markup=stop_kb(task_id))
 
     async def prog(cur, tot, text):
         try:
-            await msg.edit_text(text, reply_markup=stop_kb(id(stop)))
+            await msg.edit_text(text, reply_markup=stop_kb(task_id))
         except Exception:
             pass
 
     try:
         users = await P.reactions(client, link, on_progress=prog, stop=stop)
-        await _finish(msg, users, "reactions", stop, orig_chat=message.chat.id)
+        await _finish(msg, users, "reactions", message.chat.id)
+    except Exception as e:
+        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
     finally:
-        tasks.done_task(stop)
+        tasks.done_task(task_id)
 
 
 # ── Exports list ──────────────────────────────────────────────────────────────
@@ -264,33 +268,23 @@ async def cb_stop(cb: CallbackQuery):
     try:
         task_id = int(cb.data[5:])
         stopped = tasks.stop_task(task_id)
-        await cb.answer("🛑 Остановка..." if stopped else "Задача уже завершена")
+        await cb.answer("🛑 Останавливаю..." if stopped else "Задача уже завершена")
     except Exception:
         await cb.answer()
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-async def _finish(
-    status_msg,
-    users: list,
-    label: str,
-    stop,
-    orig_chat: int = None,
-    send_to: int = None,
-):
+async def _finish(status_msg, users: list, label: str, send_to: int):
     if not users:
         await status_msg.edit_text("❌ Ничего не найдено.", reply_markup=back_kb("parser_menu"))
         return
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = await to_csv(users, f"{label}_{ts}.csv")
+    await database.log_stat("parse", label, len(users))
     await status_msg.edit_text(
-        f"✅ *Готово!* Спаршено: *{len(users)}* записей",
-        parse_mode="Markdown",
+        f"✅ *Готово!* Спаршено: *{len(users)}* записей", parse_mode="Markdown",
     )
-    chat_id = send_to or orig_chat or status_msg.chat.id
     await status_msg.bot.send_document(
-        chat_id,
-        FSInputFile(path),
-        caption=f"📊 {label} | {len(users)} записей",
+        send_to, FSInputFile(path), caption=f"📊 {label} | {len(users)} записей",
     )
