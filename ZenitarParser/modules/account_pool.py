@@ -73,3 +73,32 @@ class AccountPool:
 
     async def count_available(self, action: str) -> int:
         return len(await self.available(action))
+
+    async def dashboard(self) -> dict:
+        """At-a-glance numbers for the main control panel."""
+        await database.reset_daily_if_needed()
+        accounts = await database.get_accounts()
+        now = time.time()
+        total = len(accounts)
+        connected = flood = banned = 0
+        inv_used = msg_used = inv_cap = msg_cap = 0
+
+        for a in accounts:
+            is_live = self.sm.get_client(a["name"]) is not None
+            if is_live:
+                connected += 1
+            if a["status"] == "banned":
+                banned += 1
+            elif a["flood_until"] and a["flood_until"] > now:
+                flood += 1
+            inv_used += a["invites_today"]
+            msg_used += a["messages_today"]
+            if is_live and a["status"] != "banned" and not (a["flood_until"] and a["flood_until"] > now):
+                inv_cap += max(0, config.MAX_INVITES_PER_DAY - a["invites_today"])
+                msg_cap += max(0, config.MAX_MESSAGES_PER_DAY - a["messages_today"])
+
+        return {
+            "total": total, "connected": connected, "flood": flood, "banned": banned,
+            "invites_used": inv_used, "messages_used": msg_used,
+            "invites_left": inv_cap, "messages_left": msg_cap,
+        }

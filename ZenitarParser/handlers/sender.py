@@ -145,9 +145,14 @@ async def handle_sender_text(message: Message, state: FSMContext, account_pool: 
                 return
             tokens = [b["token"] for b in bots]
             # Bot API rate-limit is generous; userbot delays would be far too slow.
-            sdmin, sdmax = (0.05, 0.3) if mode == "bot" else (dmin, dmax)
-            stats = await S.via_bot(tokens, users, template, sdmin, sdmax, on_progress=prog, stop=stop)
+            stats = await S.via_bot(tokens, users, template, 0.05, 0.3, on_progress=prog, stop=stop)
         await database.log_stat("send", mode, stats["success"])
+    except Exception as e:
+        await msg.edit_text(
+            f"❌ Ошибка рассылки: {str(e)[:200]}",
+            reply_markup=back_kb("sender_menu"), parse_mode=None,
+        )
+        return
     finally:
         tasks.done_task(task_id)
 

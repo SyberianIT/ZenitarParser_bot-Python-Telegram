@@ -87,7 +87,7 @@ async def cb_member_filter(cb: CallbackQuery, state: FSMContext, session_manager
         users = await P.members(client, group, filter_type=ftype, on_progress=prog, stop=stop)
         await _finish(cb.message, users, f"members_{ftype}", cb.from_user.id)
     except Exception as e:
-        await cb.message.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
+        await cb.message.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"), parse_mode=None)
     finally:
         tasks.done_task(task_id)
 
@@ -130,7 +130,7 @@ async def handle_active_group(message: Message, state: FSMContext, session_manag
         users = await P.active_users(client, group, on_progress=prog, stop=stop)
         await _finish(msg, users, "active", message.chat.id)
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
+        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"), parse_mode=None)
     finally:
         tasks.done_task(task_id)
 
@@ -182,7 +182,7 @@ async def handle_keywords(message: Message, state: FSMContext, session_manager: 
             FSInputFile(path), caption=f"🔍 По ключевым словам | {len(chats)} чатов",
         )
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
+        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"), parse_mode=None)
     finally:
         tasks.done_task(task_id)
 
@@ -226,7 +226,7 @@ async def handle_post(message: Message, state: FSMContext, session_manager: Sess
         users = await P.reactions(client, link, on_progress=prog, stop=stop)
         await _finish(msg, users, "reactions", message.chat.id)
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"))
+        await msg.edit_text(f"❌ Ошибка: {str(e)[:200]}", reply_markup=back_kb("parser_menu"), parse_mode=None)
     finally:
         tasks.done_task(task_id)
 

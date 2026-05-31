@@ -68,7 +68,7 @@ async def handle_bot_token(message: Message, state: FSMContext):
         await state.clear()
         await message.answer(f"✅ Бот @{me.username} добавлен!", reply_markup=back_kb("bots_menu"))
     except Exception as e:
-        await message.answer(f"❌ Неверный токен: `{e}`", parse_mode="Markdown")
+        await message.answer(f"❌ Неверный токен: {e}", parse_mode=None)
         await state.clear()
 
 

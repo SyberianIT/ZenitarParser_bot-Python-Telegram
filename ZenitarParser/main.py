@@ -6,7 +6,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ErrorEvent
+from aiogram.types import ErrorEvent, BotCommand
 
 import config
 import database
@@ -71,6 +71,12 @@ async def main():
     async def on_error(event: ErrorEvent):
         logger.exception("Unhandled error: %s", event.exception)
         return True
+
+    await bot.set_my_commands([
+        BotCommand(command="menu", description="🚀 Панель управления"),
+        BotCommand(command="cancel", description="✖️ Отменить действие"),
+        BotCommand(command="help", description="ℹ️ Помощь"),
+    ])
 
     me = await bot.get_me()
     logger.info("Bot @%s started. Admins: %s", me.username, config.ADMIN_IDS)

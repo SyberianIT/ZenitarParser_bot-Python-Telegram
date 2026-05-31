@@ -54,7 +54,7 @@ def _accounts_kb(sessions: list, health: dict):
         acc = health.get(s["name"], {})
         if acc.get("status") == "banned":
             icon = "🚫"
-        elif acc.get("status") == "flood" or (acc.get("flood_until", 0) > time.time()):
+        elif acc.get("flood_until", 0) > time.time():
             icon = "🌊"
         elif s.get("connected"):
             icon = "✅"
@@ -193,7 +193,7 @@ async def handle_phone(message: Message, state: FSMContext):
             parse_mode="Markdown",
         )
     except Exception as e:
-        await message.answer(f"❌ Ошибка при отправке кода: `{e}`", parse_mode="Markdown")
+        await message.answer(f"❌ Ошибка при отправке кода: {e}", parse_mode=None)
         try:
             await client.disconnect()
         except Exception:
@@ -232,7 +232,7 @@ async def handle_code(message: Message, state: FSMContext,
         await _cleanup_pending(message.from_user.id)
         await state.clear()
     except Exception as e:
-        await message.answer(f"❌ Ошибка: `{e}`", parse_mode="Markdown")
+        await message.answer(f"❌ Ошибка: {e}", parse_mode=None)
         await _cleanup_pending(message.from_user.id)
         await state.clear()
 
@@ -260,4 +260,4 @@ async def handle_2fa(message: Message, state: FSMContext,
         await state.clear()
         await message.answer("✅ Аккаунт с 2FA успешно добавлен!", reply_markup=back_kb("accounts_menu"))
     except Exception as e:
-        await message.answer(f"❌ Неверный пароль: `{e}`\nПопробуйте ещё раз:", parse_mode="Markdown")
+        await message.answer(f"❌ Неверный пароль: {e}\nПопробуйте ещё раз:", parse_mode=None)

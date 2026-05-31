@@ -11,6 +11,7 @@ def main_menu() -> InlineKeyboardMarkup:
     kb.button(text="🤖 Боты", callback_data="bots_menu")
     kb.button(text="📊 Статистика", callback_data="stats_menu")
     kb.button(text="⚙️ Настройки", callback_data="settings_menu")
+    kb.button(text="🔄 Обновить", callback_data="refresh")
     kb.adjust(2, 2, 2, 1)
     return kb.as_markup()
 

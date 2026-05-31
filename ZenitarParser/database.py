@@ -1,3 +1,4 @@
+import time
 from datetime import date
 
 import aiosqlite
@@ -137,18 +138,19 @@ async def update_account(name: str, **fields):
 
 async def reset_daily_if_needed():
     today = date.today().isoformat()
+    now = int(time.time())
     async with aiosqlite.connect(DB) as db:
+        # New day → reset per-day counters
         await db.execute(
             "UPDATE accounts SET invites_today=0, messages_today=0, last_reset=? "
             "WHERE last_reset != ?",
             (today, today),
         )
-        # auto-recover accounts whose flood cooldown is documented per-call;
-        # reset 'flood' status rows back to active on a new day
+        # Recover accounts whose flood cooldown has actually elapsed
         await db.execute(
             "UPDATE accounts SET status='active', flood_until=0 "
-            "WHERE status='flood' AND last_reset=?",
-            (today,),
+            "WHERE status='flood' AND flood_until>0 AND flood_until<=?",
+            (now,),
         )
         await db.commit()
 

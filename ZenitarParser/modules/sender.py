@@ -9,6 +9,7 @@ from pyrogram.errors import (
 )
 
 from modules.account_pool import AccountPool
+from utils.identity import to_peer
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ async def via_userbot(
         if stop and stop.is_set():
             break
 
-        uid = u.get("username") or u.get("id")
+        uid = to_peer(u.get("username") or u.get("id"))
         if not uid:
             stats["error"] += 1
             continue

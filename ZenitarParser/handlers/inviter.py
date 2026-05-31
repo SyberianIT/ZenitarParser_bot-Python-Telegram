@@ -143,6 +143,12 @@ async def handle_invite_group(message: Message, state: FSMContext, account_pool:
     try:
         stats = await I.invite(account_pool, group, users, dmin, dmax, on_progress=prog, stop=stop)
         await database.log_stat("invite", group, stats["success"])
+    except Exception as e:
+        await msg.edit_text(
+            f"❌ Ошибка инвайтинга: {str(e)[:200]}",
+            reply_markup=back_kb("inviter_menu"), parse_mode=None,
+        )
+        return
     finally:
         tasks.done_task(task_id)
 
