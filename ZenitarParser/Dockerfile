@@ -15,6 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Persistent data lives in mounted volumes
-RUN mkdir -p sessions exports uploads logs
+RUN mkdir -p sessions exports uploads logs data
 
 CMD ["python", "main.py"]

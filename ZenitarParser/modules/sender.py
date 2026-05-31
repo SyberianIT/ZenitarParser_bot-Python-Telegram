@@ -126,14 +126,12 @@ async def via_bot(
             except TelegramForbiddenError:
                 stats["blocked"] += 1
             except TelegramRetryAfter as e:
-                stats["flood"] += 1
                 await asyncio.sleep(e.retry_after)
                 try:
                     await bot.send_message(int(uid), text)
                     stats["success"] += 1
-                    stats["flood"] -= 1
                 except Exception:
-                    stats["error"] += 1
+                    stats["flood"] += 1
             except TelegramBadRequest:
                 stats["error"] += 1
             except Exception as e:

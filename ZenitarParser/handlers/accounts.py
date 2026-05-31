@@ -14,6 +14,7 @@ import database
 from modules.session_manager import SessionManager
 from modules.account_pool import AccountPool
 from utils.keyboards import back_kb
+from utils.safe import safe_edit
 from handlers.start import admin
 
 router = Router()
@@ -104,7 +105,8 @@ async def cb_acc_view(cb: CallbackQuery, session_manager: SessionManager):
 
     uname = f"@{s['username']}" if s.get("username") else "—"
     proxy = s.get("proxy") or "—"
-    await cb.message.edit_text(
+    await safe_edit(
+        cb.message,
         f"👤 *{s.get('first_name', '')} {uname}*\n\n"
         f"📱 Телефон: `{s.get('phone', '—') or '—'}`\n"
         f"💎 Premium: {'Да' if s.get('is_premium') else 'Нет'}\n"
