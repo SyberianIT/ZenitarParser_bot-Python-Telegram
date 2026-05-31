@@ -4,12 +4,16 @@ services:
     container_name: zenitar_bot
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Keep the SQLite DB inside a mounted directory so it persists without
+      # the file-vs-directory pitfall of bind-mounting a not-yet-existing file.
+      - DB_PATH=/app/data/zenitar.db
     volumes:
       - ./sessions:/app/sessions
       - ./exports:/app/exports
       - ./uploads:/app/uploads
       - ./logs:/app/logs
-      - ./zenitar.db:/app/zenitar.db
+      - ./data:/app/data
     depends_on:
       - redis
 

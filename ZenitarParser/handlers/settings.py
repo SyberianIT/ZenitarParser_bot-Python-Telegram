@@ -7,6 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import config
 import database
 from utils.keyboards import back_kb
+from utils.safe import safe_edit, safe_answer
 from handlers.start import admin
 
 router = Router()
@@ -66,7 +67,7 @@ async def handle_bot_token(message: Message, state: FSMContext):
         await b.session.close()
         await database.add_bot_token(token, me.username)
         await state.clear()
-        await message.answer(f"✅ Бот @{me.username} добавлен!", reply_markup=back_kb("bots_menu"))
+        await safe_answer(message, f"✅ Бот @{me.username} добавлен!", reply_markup=back_kb("bots_menu"))
     except Exception as e:
         await message.answer(f"❌ Неверный токен: {e}", parse_mode=None)
         await state.clear()
@@ -87,7 +88,8 @@ async def cb_bot_view(cb: CallbackQuery):
     kb.button(text="◀️ Назад", callback_data="bots_menu")
     kb.adjust(1)
 
-    await cb.message.edit_text(
+    await safe_edit(
+        cb.message,
         f"🤖 *@{b['username']}*\n\n"
         f"📅 Добавлен: {b['created_at']}\n"
         f"🔗 Статус: {'✅ Активен' if b['status'] == 'active' else '❌ Отключён'}",
@@ -133,7 +135,8 @@ async def cb_stats_menu(cb: CallbackQuery):
             ts = str(r["ts"])[5:16]
             lines.append(f"{icons.get(r['action'], '•')} {r['detail']}: {r['count']} _{ts}_")
 
-    await cb.message.edit_text(
+    await safe_edit(
+        cb.message,
         "\n".join(lines), reply_markup=back_kb("main_menu"), parse_mode="Markdown",
     )
     await cb.answer()
