@@ -4,13 +4,12 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
 import database
 from modules.account_pool import AccountPool
 from modules import sender as S
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 from utils.keyboards import sender_menu, stop_kb, back_kb
 from utils.export import load_csv, latest_export
 from utils import tasks
@@ -23,6 +22,8 @@ router = Router()
 class SenderState(StatesGroup):
     wait_input = State()
     wait_message = State()
+    wait_photo = State()
+    wait_button = State()
     wait_confirm = State()
 
 
@@ -32,9 +33,10 @@ async def cb_sender_menu(cb: CallbackQuery, state: FSMContext):
     await state.clear()
     await cb.message.edit_text(
         "📢 *Рассыльщик*\n\n"
-        "• *Юзербот* — пишет от имени ваших аккаунтов (ротация по пулу)\n"
-        "• *Бот* — пишет от имени добавленных ботов (Bot API)\n\n"
-        "💡 Переменные: `{name}` `{username}` `{last_name}` `{full_name}`",
+        "• *Юзербот* — от имени ваших аккаунтов (ротация)\n"
+        "• *Бот* — через Bot API (быстрее, нужен старт бота)\n\n"
+        "💡 Переменные: `{name}` `{username}` `{last_name}` `{full_name}`\n"
+        "🖼 Поддержка фото и инлайн-кнопок",
         reply_markup=sender_menu(), parse_mode="Markdown",
     )
     await cb.answer()
@@ -84,7 +86,7 @@ async def handle_sender_input(message: Message, state: FSMContext):
     await state.set_state(SenderState.wait_message)
     await message.answer(
         f"✅ Загружено *{len(users)}* получателей.\n\n"
-        "Теперь введите *текст сообщения*.\n"
+        "Введите *текст сообщения*.\n"
         "Переменные: `{name}` `{username}` `{last_name}` `{full_name}`",
         parse_mode="Markdown",
     )
@@ -93,35 +95,94 @@ async def handle_sender_input(message: Message, state: FSMContext):
 @router.message(SenderState.wait_message, F.text)
 async def handle_sender_text(message: Message, state: FSMContext):
     if not admin(message.from_user.id): return
+    await state.update_data(template=message.text)
+    await state.set_state(SenderState.wait_photo)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⏭ Без фото", callback_data="snd_skip_photo")
+    await message.answer(
+        "🖼 Отправьте фото для медиа-сообщения или пропустите:",
+        reply_markup=kb.as_markup(),
+    )
 
+
+@router.message(SenderState.wait_photo, F.photo)
+async def handle_sender_photo(message: Message, state: FSMContext):
+    if not admin(message.from_user.id): return
+    os.makedirs(config.UPLOADS_DIR, exist_ok=True)
+    photo_path = os.path.join(config.UPLOADS_DIR, f"snd_photo_{message.from_user.id}.jpg")
+    await message.bot.download(message.photo[-1], photo_path)
+    await state.update_data(photo_path=photo_path)
+    await _ask_button(message, state)
+
+
+@router.callback_query(SenderState.wait_photo, F.data == "snd_skip_photo")
+async def cb_skip_photo(cb: CallbackQuery, state: FSMContext):
+    if not admin(cb.from_user.id): return
+    await state.update_data(photo_path="")
+    await _ask_button(cb.message, state)
+    await cb.answer()
+
+
+async def _ask_button(msg, state: FSMContext):
+    await state.set_state(SenderState.wait_button)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⏭ Без кнопки", callback_data="snd_skip_button")
+    await msg.answer(
+        "🔗 Добавить инлайн-кнопку к сообщению?\n"
+        "Формат: `Текст кнопки|https://url.com`\n"
+        "Или пропустите:",
+        reply_markup=kb.as_markup(), parse_mode="Markdown",
+    )
+
+
+@router.message(SenderState.wait_button, F.text)
+async def handle_sender_button(message: Message, state: FSMContext):
+    if not admin(message.from_user.id): return
+    button = message.text.strip()
+    if "|" not in button:
+        await message.answer("❌ Формат: `Текст|https://url.com`", parse_mode="Markdown")
+        return
+    await state.update_data(button=button)
+    await _show_preview(message, state)
+
+
+@router.callback_query(SenderState.wait_button, F.data == "snd_skip_button")
+async def cb_skip_button(cb: CallbackQuery, state: FSMContext):
+    if not admin(cb.from_user.id): return
+    await state.update_data(button="")
+    await _show_preview(cb.message, state)
+    await cb.answer()
+
+
+async def _show_preview(msg, state: FSMContext):
+    await state.set_state(SenderState.wait_confirm)
     data = await state.get_data()
     users = data.get("users", [])
-    template = message.text
+    template = data.get("template", "")
+    photo_path = data.get("photo_path", "")
+    button = data.get("button", "")
 
-    if not users:
-        await message.answer("❌ Список пуст.")
-        await state.clear()
-        return
-
-    await state.update_data(template=template)
-    await state.set_state(SenderState.wait_confirm)
-
-    # Render a preview using the first recipient's data
     sample = users[0] if users else {"first_name": "Имя", "username": "username"}
     preview = _fmt(template, sample)
 
+    extras = ""
+    if photo_path:
+        extras += "🖼 Фото: ✅\n"
+    if button:
+        extras += f"🔗 Кнопка: `{button}`\n"
+
     kb = InlineKeyboardBuilder()
-    kb.button(text="🧪 Тест мне", callback_data="send_test")
+    kb.button(text="🧪 Тест себе", callback_data="send_test")
     kb.button(text="🚀 Запустить", callback_data="send_confirm")
     kb.button(text="✖️ Отмена", callback_data="sender_menu")
-    kb.adjust(1, 2)
+    kb.adjust(2, 1)
 
-    await message.answer(
-        f"👀 *Превью сообщения* (на примере первого получателя):\n"
+    await msg.answer(
+        f"👀 *Превью* (на примере первого получателя):\n"
         f"━━━━━━━━━━━━━━━━━━━━\n{preview}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 Получателей: *{len(users)}*\n\n"
-        f"Отправьте тест себе или запускайте рассылку.",
+        + extras +
+        f"📊 Получателей: *{len(users)}*",
         reply_markup=kb.as_markup(), parse_mode="Markdown",
     )
 
@@ -132,15 +193,18 @@ async def cb_send_test(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     users = data.get("users", [])
     template = data.get("template", "")
+    photo_path = data.get("photo_path", "")
     sample = users[0] if users else {"first_name": cb.from_user.first_name}
+    text = _fmt(template, sample)
     try:
-        await cb.message.answer(
-            f"🧪 *Тестовое сообщение:*\n\n{_fmt(template, sample)}",
-            parse_mode="Markdown",
-        )
+        if photo_path and os.path.exists(photo_path):
+            from aiogram.types import FSInputFile
+            await cb.message.answer_photo(FSInputFile(photo_path), caption=text)
+        else:
+            await cb.message.answer(f"🧪 *Тест:*\n\n{text}", parse_mode="Markdown")
         await cb.answer("Тест отправлен")
     except Exception:
-        await cb.message.answer(f"🧪 Тест:\n\n{_fmt(template, sample)}", parse_mode=None)
+        await cb.message.answer(f"🧪 Тест:\n\n{text}", parse_mode=None)
         await cb.answer()
 
 
@@ -152,6 +216,8 @@ async def cb_send_confirm(cb: CallbackQuery, state: FSMContext, account_pool: Ac
     users = data.get("users", [])
     mode = data.get("mode", "userbot")
     template = data.get("template", "")
+    photo_path = data.get("photo_path", "") or None
+    button = data.get("button", "") or None
     await state.clear()
     await cb.answer()
 
@@ -178,6 +244,7 @@ async def cb_send_confirm(cb: CallbackQuery, state: FSMContext, account_pool: Ac
                 f"📢 Рассылка: {cur}/{tot}\n"
                 f"✅ Отправлено: {s['success']}\n"
                 f"🚫 Заблокировано: {s.get('blocked', 0)}\n"
+                f"🚫 Пропущено (ЧС): {s.get('skip', 0)}\n"
                 f"🌊 Флуд: {s.get('flood', 0)}\n"
                 f"❌ Ошибок: {s['error']}",
                 reply_markup=stop_kb(task_id),
@@ -189,23 +256,29 @@ async def cb_send_confirm(cb: CallbackQuery, state: FSMContext, account_pool: Ac
         if mode == "userbot":
             if await account_pool.count_available("send") == 0:
                 await msg.edit_text(
-                    "❌ Нет доступных аккаунтов (кулдаун/лимит/нет активных). "
-                    "Добавьте в 👥 Аккаунты.",
+                    "❌ Нет доступных аккаунтов. Добавьте в 👥 Аккаунты.",
                     reply_markup=back_kb("sender_menu"),
                 )
                 return
-            stats = await S.via_userbot(account_pool, users, template, dmin, dmax, on_progress=prog, stop=stop)
+            stats = await S.via_userbot(
+                account_pool, users, template, dmin, dmax,
+                photo_path=photo_path, button=button,
+                on_progress=prog, stop=stop,
+            )
         else:
             bots = await database.get_bot_tokens()
             if not bots:
                 await msg.edit_text(
-                    "❌ Нет активных ботов. Добавьте токен в разделе 🤖 Боты.",
+                    "❌ Нет активных ботов. Добавьте в разделе 🤖 Боты.",
                     reply_markup=back_kb("sender_menu"),
                 )
                 return
             tokens = [b["token"] for b in bots]
-            # Bot API rate-limit is generous; userbot delays would be far too slow.
-            stats = await S.via_bot(tokens, users, template, 0.05, 0.3, on_progress=prog, stop=stop)
+            stats = await S.via_bot(
+                tokens, users, template, 0.05, 0.3,
+                photo_path=photo_path, button=button,
+                on_progress=prog, stop=stop,
+            )
         await database.log_stat("send", mode, stats["success"])
     except Exception as e:
         await msg.edit_text(
@@ -217,11 +290,12 @@ async def cb_send_confirm(cb: CallbackQuery, state: FSMContext, account_pool: Ac
         tasks.done_task(task_id)
 
     note = "\n\n⚠️ Аккаунты закончились (флуд/лимиты)." if stats.get("no_accounts") else ""
-    used = f"\n👥 Аккаунтов задействовано: {stats['accounts_used']}" if "accounts_used" in stats else ""
+    used = f"\n👥 Аккаунтов: {stats['accounts_used']}" if "accounts_used" in stats else ""
     await msg.edit_text(
         f"📢 *Рассылка завершена*\n\n"
         f"✅ Отправлено: {stats['success']}\n"
         f"🚫 Заблокировано: {stats.get('blocked', 0)}\n"
+        f"🚫 Пропущено (ЧС): {stats.get('skip', 0)}\n"
         f"🌊 Флуд/лимит: {stats.get('flood', 0)}\n"
         f"❌ Ошибок: {stats['error']}{used}\n"
         f"📊 Всего: {stats['total']}{note}",

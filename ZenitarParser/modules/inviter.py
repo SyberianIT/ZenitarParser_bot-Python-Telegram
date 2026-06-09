@@ -32,9 +32,15 @@ async def invite(
     }
     chat_cache: dict[str, object] = {}  # per-account resolved chat
 
+    from modules.blacklist import is_blacklisted
+
     for i, u in enumerate(users):
         if stop and stop.is_set():
             break
+
+        if await is_blacklisted(u):
+            stats["skip"] += 1
+            continue
 
         uid = to_peer(u.get("username") or u.get("id"))
         if not uid:

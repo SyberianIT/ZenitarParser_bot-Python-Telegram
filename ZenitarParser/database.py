@@ -42,6 +42,23 @@ async def init_db():
                 count  INTEGER DEFAULT 0,
                 ts     DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS blacklist (
+                ident    TEXT PRIMARY KEY,    -- 'id:123' or 'un:username'
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS scheduled_jobs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_at     INTEGER NOT NULL,
+                mode       TEXT NOT NULL,      -- userbot / bot
+                csv_path   TEXT NOT NULL,
+                template   TEXT DEFAULT '',
+                photo_path TEXT DEFAULT '',
+                button     TEXT DEFAULT '',    -- 'text|url'
+                status     TEXT DEFAULT 'pending',  -- pending / running / done / failed
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         await db.commit()
 
@@ -186,3 +203,82 @@ async def recent_stats(limit: int = 10) -> list[dict]:
             "SELECT * FROM stats ORDER BY id DESC LIMIT ?", (limit,)
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+# ── blacklist ──────────────────────────────────────────────────────────────────
+
+async def blacklist_add(ident: str):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("INSERT OR IGNORE INTO blacklist (ident) VALUES (?)", (ident,))
+        await db.commit()
+
+
+async def blacklist_remove(ident: str):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM blacklist WHERE ident=?", (ident,))
+        await db.commit()
+
+
+async def blacklist_check(ident: str) -> bool:
+    async with aiosqlite.connect(DB) as db:
+        async with db.execute("SELECT 1 FROM blacklist WHERE ident=?", (ident,)) as cur:
+            return await cur.fetchone() is not None
+
+
+async def blacklist_get_all() -> list[str]:
+    async with aiosqlite.connect(DB) as db:
+        async with db.execute("SELECT ident FROM blacklist ORDER BY added_at DESC") as cur:
+            return [row[0] for row in await cur.fetchall()]
+
+
+async def blacklist_clear():
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM blacklist")
+        await db.commit()
+
+
+# ── scheduled jobs ─────────────────────────────────────────────────────────────
+
+async def job_add(run_at: int, mode: str, csv_path: str, template: str,
+                  photo_path: str = "", button: str = "") -> int:
+    async with aiosqlite.connect(DB) as db:
+        async with db.execute(
+            "INSERT INTO scheduled_jobs (run_at, mode, csv_path, template, photo_path, button) "
+            "VALUES (?,?,?,?,?,?)",
+            (run_at, mode, csv_path, template, photo_path, button),
+        ) as cur:
+            job_id = cur.lastrowid
+        await db.commit()
+    return job_id
+
+
+async def job_get_pending() -> list[dict]:
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM scheduled_jobs WHERE status='pending' ORDER BY run_at"
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def job_get_all() -> list[dict]:
+    async with aiosqlite.connect(DB) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM scheduled_jobs ORDER BY id DESC LIMIT 30"
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def job_update_status(job_id: int, status: str):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute(
+            "UPDATE scheduled_jobs SET status=? WHERE id=?", (status, job_id)
+        )
+        await db.commit()
+
+
+async def job_delete(job_id: int):
+    async with aiosqlite.connect(DB) as db:
+        await db.execute("DELETE FROM scheduled_jobs WHERE id=?", (job_id,))
+        await db.commit()

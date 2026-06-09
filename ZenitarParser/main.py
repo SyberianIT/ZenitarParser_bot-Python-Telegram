@@ -13,7 +13,8 @@ import database
 from utils.logger import setup_logging
 from modules.session_manager import SessionManager
 from modules.account_pool import AccountPool
-from handlers import start, parser, audience, inviter, sender, accounts, profile, settings
+from modules.scheduler import start_scheduler, stop_scheduler
+from handlers import start, parser, audience, inviter, sender, accounts, profile, settings, blacklist, scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ async def main():
     dp.include_router(accounts.router)
     dp.include_router(profile.router)
     dp.include_router(settings.router)
+    dp.include_router(blacklist.router)
+    dp.include_router(scheduler.router)
 
     @dp.error()
     async def on_error(event: ErrorEvent):
@@ -83,9 +86,12 @@ async def main():
     me = await bot.get_me()
     logger.info("Bot @%s started. Admins: %s", me.username, config.ADMIN_IDS)
 
+    start_scheduler(pool, bot)
+
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        stop_scheduler()
         await sm.stop_all()
         await bot.session.close()
         logger.info("Bot stopped gracefully")

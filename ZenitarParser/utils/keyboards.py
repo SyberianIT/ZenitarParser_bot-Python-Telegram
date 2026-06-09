@@ -8,12 +8,14 @@ def main_menu() -> InlineKeyboardMarkup:
     kb.button(text="🎯 Аудитория", callback_data="audience_menu")
     kb.button(text="📨 Инвайтер", callback_data="inviter_menu")
     kb.button(text="📢 Рассыльщик", callback_data="sender_menu")
+    kb.button(text="⏰ Планировщик", callback_data="scheduler_menu")
+    kb.button(text="🚫 Чёрный список", callback_data="blacklist_menu")
     kb.button(text="👥 Аккаунты", callback_data="accounts_menu")
     kb.button(text="🤖 Боты", callback_data="bots_menu")
     kb.button(text="📊 Статистика", callback_data="stats_menu")
     kb.button(text="⚙️ Настройки", callback_data="settings_menu")
     kb.button(text="🔄 Обновить", callback_data="refresh")
-    kb.adjust(2, 2, 2, 2, 1)
+    kb.adjust(2, 2, 2, 2, 2, 1)
     return kb.as_markup()
 
 

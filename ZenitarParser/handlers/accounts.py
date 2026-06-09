@@ -13,6 +13,7 @@ import config
 import database
 from modules.session_manager import SessionManager
 from modules.account_pool import AccountPool
+from modules import profile as PR
 from utils.keyboards import back_kb
 from handlers.start import admin
 
@@ -28,6 +29,7 @@ class AccountState(StatesGroup):
     wait_code = State()
     wait_2fa = State()
     wait_proxy = State()
+    wait_bulk_join = State()
 
 
 async def _cleanup_pending(user_id: int):
@@ -64,6 +66,9 @@ def _accounts_kb(sessions: list, health: dict):
         label = f"{icon} @{uname}" if s.get("username") else f"{icon} {uname}"
         kb.button(text=label, callback_data=f"acv_{s['name']}")
     kb.button(text="➕ Добавить аккаунт", callback_data="acc_add")
+    if sessions:
+        kb.button(text="🛡 Проверить спам у всех", callback_data="acc_bulk_spam")
+        kb.button(text="➕ Вступить всем в чат", callback_data="acc_bulk_join")
     kb.button(text="◀️ Назад", callback_data="main_menu")
     kb.adjust(1)
     return kb.as_markup()
@@ -262,3 +267,71 @@ async def handle_2fa(message: Message, state: FSMContext,
         await message.answer("✅ Аккаунт с 2FA успешно добавлен!", reply_markup=back_kb("accounts_menu"))
     except Exception as e:
         await message.answer(f"❌ Неверный пароль: {e}\nПопробуйте ещё раз:", parse_mode=None)
+
+
+# ── Bulk actions ──────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "acc_bulk_spam")
+async def cb_bulk_spam(cb: CallbackQuery, session_manager: SessionManager):
+    if not admin(cb.from_user.id): return
+    await cb.answer("Проверяю все аккаунты...")
+    sessions = await session_manager.status()
+    connected = [s for s in sessions if s.get("connected")]
+    if not connected:
+        await cb.message.answer("❌ Нет подключённых аккаунтов.")
+        return
+    msg = await cb.message.answer(f"🛡 Проверяю спам-блок у {len(connected)} аккаунтов...")
+    results = []
+    for s in connected:
+        client = session_manager.get_client(s["name"])
+        if not client:
+            continue
+        try:
+            result = await PR.check_spam(client)
+            uname = f"@{s['username']}" if s.get("username") else s["name"]
+            results.append(f"*{uname}*: {result}")
+        except Exception as e:
+            results.append(f"{s['name']}: ❌ {e}")
+    await msg.edit_text(
+        "🛡 *Результаты проверки спам-блока:*\n\n" + "\n\n".join(results),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data == "acc_bulk_join")
+async def cb_bulk_join(cb: CallbackQuery, state: FSMContext):
+    if not admin(cb.from_user.id): return
+    await state.set_state(AccountState.wait_bulk_join)
+    await cb.message.answer(
+        "➕ Введите ссылку или @username чата для вступления всеми аккаунтами:",
+        reply_markup=back_kb("accounts_menu"),
+    )
+    await cb.answer()
+
+
+@router.message(AccountState.wait_bulk_join, F.text)
+async def handle_bulk_join(message: Message, state: FSMContext, session_manager: SessionManager):
+    if not admin(message.from_user.id): return
+    chat = message.text.strip()
+    await state.clear()
+    sessions = await session_manager.status()
+    connected = [s for s in sessions if s.get("connected")]
+    if not connected:
+        await message.answer("❌ Нет подключённых аккаунтов.")
+        return
+    msg = await message.answer(f"⏳ Вступаю в {chat} с {len(connected)} аккаунтов...")
+    ok, fail = 0, 0
+    for s in connected:
+        client = session_manager.get_client(s["name"])
+        if not client:
+            fail += 1
+            continue
+        try:
+            await PR.join(client, chat)
+            ok += 1
+        except Exception:
+            fail += 1
+    await msg.edit_text(
+        f"✅ Вступили: {ok}\n❌ Ошибок: {fail}",
+        reply_markup=back_kb("accounts_menu"),
+    )
